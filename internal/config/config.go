@@ -14,9 +14,10 @@ type CrawlerConfig struct {
 
 // HTTPServerConfig stores the configuration for the HTTP server.
 type HTTPServerConfig struct {
-	Server string `mapstructure:"host"`
-	Port   int    `mapstructure:"port"`
-	URL    string `mapstructure:"url"`
+	Server         string `mapstructure:"host"`
+	Port           int    `mapstructure:"port"`
+	URL            string `mapstructure:"url"`
+	SignupDisabled bool   `mapstructure:"signup_disabled"`
 }
 
 // DBConfig stores the configuration for the database store.

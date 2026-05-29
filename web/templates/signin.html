@@ -25,11 +25,13 @@
 						{{ end }}
 					</div>
 
+					{{ if not .Data.SignupDisabled }}
 					<div class="box-footer">
 						<div class="content">
 							{{ trans "NEW_USER" }} <a href="/signup">{{ trans "NEW_USER_SIGNUP" }}</a>
 						</div>
 					</div>
+					{{ end }}
 				</div>
 
 				<div class="credentials-text">

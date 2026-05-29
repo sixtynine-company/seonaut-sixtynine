@@ -28,6 +28,8 @@ services:
       - WAIT_SLEEP_INTERVAL=30
       - WAIT_HOST_CONNECT_TIMEOUT=30
       # Seonaut config overrides
+      # Set to true to disable public account signups (recommended in production):
+      - SEONAUT_SERVER_SIGNUP_DISABLED=${SEONAUT_SERVER_SIGNUP_DISABLED:-false}
       # - SEONAUT_SERVER_HOST=${SEONAUT_SERVER_HOST:-0.0.0.0}
       # - SEONAUT_SERVER_PORT=${SEONAUT_INTERNAL_PORT:-9000}
       # - SEONAUT_SERVER_URL=${SEONAUT_SERVER_URL:-http://localhost:${SEONAUT_PORT:-9000}}
