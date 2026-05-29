@@ -32,6 +32,7 @@ type Container struct {
 	CookieSession      *CookieSession
 	ArchiveService     *ArchiveService
 	ReplayService      *ReplayService
+	APICrawlService    *APICrawlService
 
 	db                   *sql.DB
 	issueRepository      *repository.IssueRepository
@@ -63,6 +64,7 @@ func NewContainer(configFile string) *Container {
 	c.InitRenderer()
 	c.InitCookieSession()
 	c.InitReplayService()
+	c.InitAPICrawlService()
 
 	return c
 }
@@ -250,4 +252,23 @@ func (c *Container) InitArchiveService() {
 // Init the WACZ archive replay service.
 func (c *Container) InitReplayService() {
 	c.ReplayService = NewReplayService()
+}
+
+// Init the internal crawl API service.
+func (c *Container) InitAPICrawlService() {
+	repository := &struct {
+		*repository.ProjectRepository
+		*repository.CrawlRepository
+		*repository.UserRepository
+	}{
+		c.projectRepository,
+		c.crawlRepository,
+		c.userRepository,
+	}
+
+	c.APICrawlService = NewAPICrawlService(c.CrawlerService, c.ProjectService, c.UserService, c.IssueService, c.Config.API, repository)
+
+	if c.Config.API == nil || c.Config.API.Key == "" {
+		log.Println("warning: api.key is not set — the internal crawl API is disabled (all requests will be rejected)")
+	}
 }

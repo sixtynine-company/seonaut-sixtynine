@@ -152,6 +152,52 @@ func (ds *ProjectRepository) FindProjectById(id int, uid int) (models.Project, e
 	return p, nil
 }
 
+// FindProjectByURL returns a Project model with the specified url and user id.
+// It does not log on error so that sql.ErrNoRows propagates cleanly to the caller.
+func (ds *ProjectRepository) FindProjectByURL(url string, uid int) (*models.Project, error) {
+	query := `
+		SELECT
+			id,
+			url,
+			ignore_robotstxt,
+			follow_nofollow,
+			include_noindex,
+			crawl_sitemap,
+			allow_subdomains,
+			basic_auth,
+			deleting,
+			created,
+			check_external_links,
+			archive,
+			user_agent
+		FROM projects
+		WHERE url = ? AND user_id = ?`
+
+	row := ds.DB.QueryRow(query, url, uid)
+
+	p := &models.Project{}
+	err := row.Scan(
+		&p.Id,
+		&p.URL,
+		&p.IgnoreRobotsTxt,
+		&p.FollowNofollow,
+		&p.IncludeNoindex,
+		&p.CrawlSitemap,
+		&p.AllowSubdomains,
+		&p.BasicAuth,
+		&p.Deleting,
+		&p.Created,
+		&p.CheckExternalLinks,
+		&p.Archive,
+		&p.UserAgent,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return p, nil
+}
+
 // DisableProject disables a project marking it as "deleting".
 func (ds *ProjectRepository) DisableProject(p *models.Project) {
 	query := `UPDATE projects SET deleting=1 WHERE id = ?`

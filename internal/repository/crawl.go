@@ -38,6 +38,17 @@ func (ds *CrawlRepository) SaveCrawl(p models.Project) (*models.Crawl, error) {
 	}, nil
 }
 
+// GetCrawledPagesCount returns the number of page reports stored for the given
+// crawl. It is used to report live crawl progress.
+func (ds *CrawlRepository) GetCrawledPagesCount(crawlId int64) int {
+	row := ds.DB.QueryRow(`SELECT count(*) FROM pagereports WHERE crawl_id = ?`, crawlId)
+	var c int
+	if err := row.Scan(&c); err != nil {
+		log.Printf("GetCrawledPagesCount: %v\n", err)
+	}
+	return c
+}
+
 // GetLastCrawl returns a Crawl model with the last crawl stored for an specific project.
 func (ds *CrawlRepository) GetLastCrawl(p *models.Project) models.Crawl {
 	query := `

@@ -21,6 +21,11 @@ const (
 	ClientTimeout   = 10    // HTTP client timeout in seconds.
 )
 
+// ErrProjectCrawling is returned when a crawl is requested for a project that
+// is already being crawled. It is exported so callers (e.g. the API crawl
+// service) can detect the condition with errors.Is instead of a string compare.
+var ErrProjectCrawling = errors.New("project is already being crawled")
+
 type CrawlerServiceRepository interface {
 	SaveCrawl(models.Project) (*models.Crawl, error)
 	GetLastCrawl(p *models.Project) models.Crawl
@@ -63,14 +68,38 @@ func NewCrawlerService(r CrawlerServiceRepository, s CrawlerServicesContainer) *
 	}
 }
 
+// reservedCrawl holds the state created when a crawl is reserved, ready to be
+// executed. It bundles the parsed URL, the crawler, the saved crawl record and
+// the previous crawl whose data is removed once the new crawl completes.
+type reservedCrawl struct {
+	url           *url.URL
+	crawler       *crawler.Crawler
+	crawl         *models.Crawl
+	previousCrawl models.Crawl
+}
+
 // StartCrawler creates a new crawler and crawls the project's URL.
 // It adds a new crawler for the project, it returns an error if there's one already
 // running or if there's an error creating it.
 // Finally the previous crawl's data is removed and the crawl is returned.
 func (s *CrawlerService) StartCrawler(p models.Project, b models.BasicAuth) error {
-	u, err := url.Parse(p.URL)
+	r, err := s.reserveCrawl(p, b, CrawlLimit)
 	if err != nil {
 		return err
+	}
+
+	go s.executeCrawl(r, p)
+
+	return nil
+}
+
+// reserveCrawl acquires the in-memory crawler lock and creates the crawl record
+// for the project. It returns the reserved crawl ready to be executed, or an
+// error if the project is already being crawled or the crawl could not be saved.
+func (s *CrawlerService) reserveCrawl(p models.Project, b models.BasicAuth, crawlLimit int) (*reservedCrawl, error) {
+	u, err := url.Parse(p.URL)
+	if err != nil {
+		return nil, err
 	}
 
 	if u.Path == "" {
@@ -80,9 +109,9 @@ func (s *CrawlerService) StartCrawler(p models.Project, b models.BasicAuth) erro
 	// Acquire the in-memory lock before any DB writes so that a rejected
 	// duplicate trigger cannot leave an orphaned crawl record with a NULL
 	// end timestamp.
-	c, err := s.addCrawler(u, &p, &b)
+	c, err := s.addCrawler(u, &p, &b, crawlLimit)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	previousCrawl := s.repository.GetLastCrawl(&p)
@@ -90,54 +119,58 @@ func (s *CrawlerService) StartCrawler(p models.Project, b models.BasicAuth) erro
 	crawl, err := s.repository.SaveCrawl(p)
 	if err != nil {
 		s.removeCrawler(&p)
-		return err
+		return nil, err
 	}
 
-	go func() {
-		defer s.removeCrawler(&p)
-		defer s.repository.DeleteCrawlData(&previousCrawl)
+	return &reservedCrawl{url: u, crawler: c, crawl: crawl, previousCrawl: previousCrawl}, nil
+}
 
-		callback := s.crawlerHandler.responseCallback(crawl, &p, c)
+// executeCrawl runs a reserved crawl to completion. It blocks until the crawl
+// is done, then creates the issues, updates the crawl record and publishes the
+// completion message. The project is taken by value so the cleanup defers
+// operate on a stable copy.
+func (s *CrawlerService) executeCrawl(r *reservedCrawl, p models.Project) {
+	defer s.removeCrawler(&p)
+	defer s.repository.DeleteCrawlData(&r.previousCrawl)
 
-		if p.Archive {
-			archiver, err := s.ArchiveService.GetArchiveWriter(&p)
-			if err != nil {
-				log.Printf("Failed to create archive: %v", err)
-			} else {
-				defer archiver.Close()
-				callback = s.crawlerHandler.archiveWrapper(callback, archiver)
-			}
+	callback := s.crawlerHandler.responseCallback(r.crawl, &p, r.crawler)
+
+	if p.Archive {
+		archiver, err := s.ArchiveService.GetArchiveWriter(&p)
+		if err != nil {
+			log.Printf("Failed to create archive: %v", err)
+		} else {
+			defer archiver.Close()
+			callback = s.crawlerHandler.archiveWrapper(callback, archiver)
 		}
+	}
 
-		c.OnResponse(callback)
+	r.crawler.OnResponse(callback)
 
-		log.Printf("Crawling %s...", p.URL)
-		c.AddRequest(&crawler.RequestMessage{URL: u, Data: crawlerData{}})
+	log.Printf("Crawling %s...", p.URL)
+	r.crawler.AddRequest(&crawler.RequestMessage{URL: r.url, Data: crawlerData{}})
 
-		// Calling Start() initiates the website crawling process and
-		// blocks execution until the crawling is complete.
-		c.Start()
+	// Calling Start() initiates the website crawling process and
+	// blocks execution until the crawling is complete.
+	r.crawler.Start()
 
-		crawl.RobotstxtExists = c.RobotstxtExists()
-		crawl.SitemapExists = c.SitemapExists()
-		crawl.SitemapIsBlocked = c.SitemapIsBlocked()
-		crawl.End = time.Now()
+	r.crawl.RobotstxtExists = r.crawler.RobotstxtExists()
+	r.crawl.SitemapExists = r.crawler.SitemapExists()
+	r.crawl.SitemapIsBlocked = r.crawler.SitemapIsBlocked()
+	r.crawl.End = time.Now()
 
-		s.broker.Publish(fmt.Sprintf("crawl-%d", p.Id), &models.Message{Name: "IssuesInit"})
-		s.reportManager.CreateMultipageIssues(crawl)
+	s.broker.Publish(fmt.Sprintf("crawl-%d", p.Id), &models.Message{Name: "IssuesInit"})
+	s.reportManager.CreateMultipageIssues(r.crawl)
 
-		crawl.IssuesEnd = time.Now()
-		crawl.CriticalIssues = s.repository.CountIssuesByPriority(crawl.Id, Critical)
-		crawl.AlertIssues = s.repository.CountIssuesByPriority(crawl.Id, Alert)
-		crawl.WarningIssues = s.repository.CountIssuesByPriority(crawl.Id, Warning)
-		crawl.TotalIssues = crawl.CriticalIssues + crawl.AlertIssues + crawl.WarningIssues
+	r.crawl.IssuesEnd = time.Now()
+	r.crawl.CriticalIssues = s.repository.CountIssuesByPriority(r.crawl.Id, Critical)
+	r.crawl.AlertIssues = s.repository.CountIssuesByPriority(r.crawl.Id, Alert)
+	r.crawl.WarningIssues = s.repository.CountIssuesByPriority(r.crawl.Id, Warning)
+	r.crawl.TotalIssues = r.crawl.CriticalIssues + r.crawl.AlertIssues + r.crawl.WarningIssues
 
-		s.repository.UpdateCrawl(crawl)
-		s.broker.Publish(fmt.Sprintf("crawl-%d", p.Id), &models.Message{Name: "CrawlEnd", Data: crawl.TotalURLs})
-		log.Printf("Crawled %d urls in %s", crawl.TotalURLs, p.URL)
-	}()
-
-	return nil
+	s.repository.UpdateCrawl(r.crawl)
+	s.broker.Publish(fmt.Sprintf("crawl-%d", p.Id), &models.Message{Name: "CrawlEnd", Data: r.crawl.TotalURLs})
+	log.Printf("Crawled %d urls in %s", r.crawl.TotalURLs, p.URL)
 }
 
 // Get a slice with 'LastCrawlsLimit' number of the crawls
@@ -167,16 +200,16 @@ func (s *CrawlerService) StopCrawler(p models.Project) {
 // AddCrawler creates a new project crawler and adds it to the crawlers map. It returns the crawler
 // on success otherwise it returns an error indicating the crawler already exists or there was an
 // error creating it.
-func (s *CrawlerService) addCrawler(u *url.URL, p *models.Project, b *models.BasicAuth) (*crawler.Crawler, error) {
+func (s *CrawlerService) addCrawler(u *url.URL, p *models.Project, b *models.BasicAuth, crawlLimit int) (*crawler.Crawler, error) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 
 	if _, ok := s.crawlers[p.Id]; ok {
-		return nil, errors.New("project is already being crawled")
+		return nil, ErrProjectCrawling
 	}
 
 	options := &crawler.Options{
-		CrawlLimit:      CrawlLimit,
+		CrawlLimit:      crawlLimit,
 		IgnoreRobotsTxt: p.IgnoreRobotsTxt,
 		FollowNofollow:  p.FollowNofollow,
 		IncludeNoindex:  p.IncludeNoindex,

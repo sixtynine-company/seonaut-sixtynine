@@ -36,6 +36,12 @@ func NewServer(container *services.Container) {
 	http.HandleFunc("POST /crawl/auth", container.CookieSession.Auth(crawlHandler.authPostHandler))
 	http.HandleFunc("GET /crawl/ws", container.CookieSession.Auth(crawlHandler.wsHandler))
 
+	// Internal API routes (X-API-Key protected, intended for the internal network only).
+	apiHandler := apiHandler{container}
+	http.HandleFunc("POST /api/v1/crawl", apiHandler.apiKeyAuth(apiHandler.startCrawlHandler))
+	http.HandleFunc("GET /api/v1/crawl/{crawlId}", apiHandler.apiKeyAuth(apiHandler.statusHandler))
+	http.HandleFunc("GET /api/v1/crawl/{crawlId}/results", apiHandler.apiKeyAuth(apiHandler.resultsHandler))
+
 	// Dashboard route
 	dashboardHandler := dashboardHandler{container}
 	http.HandleFunc("GET /dashboard", container.CookieSession.Auth(dashboardHandler.indexHandler))

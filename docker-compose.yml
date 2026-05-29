@@ -13,6 +13,10 @@ services:
   app:
     build: .
     container_name: "SEOnaut-app"
+    # The internal /api/v1 routes share this port. For internal-network-only access
+    # (per the API design), do NOT publish this port publicly — instead reach the app
+    # from a co-located service over the seonaut_network at http://SEOnaut-app:9000,
+    # or bind to 127.0.0.1 (e.g. "127.0.0.1:9000:9000"). Left published here for local dev.
     ports:
       - "${SEONAUT_PORT:-9000}:9000"
     depends_on:
@@ -32,6 +36,11 @@ services:
       # - SEONAUT_DATABASE_USER=${SEONAUT_DB_USER:-seonaut}
       # - SEONAUT_DATABASE_PASSWORD=${SEONAUT_DB_PASSWORD:-seonaut}
       # - SEONAUT_DATABASE_DATABASE=${SEONAUT_DB_NAME:-seonaut}
+      # Internal crawl API (set a strong secret to enable it):
+      # - SEONAUT_API_KEY=${SEONAUT_API_KEY:-}
+      # - SEONAUT_API_MAX_CONCURRENT_CRAWLS=${SEONAUT_API_MAX_CONCURRENT_CRAWLS:-3}
+      # - SEONAUT_API_FULL_CAP=${SEONAUT_API_FULL_CAP:-200}
+      # - SEONAUT_API_DEFAULT_TIMEOUT_SECONDS=${SEONAUT_API_DEFAULT_TIMEOUT_SECONDS:-90}
     networks:
       - seonaut_network
 

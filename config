@@ -16,3 +16,12 @@ agent = "Mozilla/5.0 (compatible; SEOnautBot/1.0; +https://seonaut.org/bot)"
 [UI]
 language = "en"
 theme = "dark"
+
+[api]
+key = ""
+max_concurrent_crawls = 3
+homepage_cap = 1
+key_cap = 10
+full_cap = 200
+default_timeout_seconds = 90
+max_timeout_seconds = 300

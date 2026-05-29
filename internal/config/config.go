@@ -34,12 +34,24 @@ type UIConfig struct {
 	Theme    string `mapstructure:"theme"`
 }
 
+// APIConfig stores the configuration for the internal JSON API.
+type APIConfig struct {
+	Key                   string `mapstructure:"key"`
+	MaxConcurrentCrawls   int    `mapstructure:"max_concurrent_crawls"`
+	HomepageCap           int    `mapstructure:"homepage_cap"`
+	KeyCap                int    `mapstructure:"key_cap"`
+	FullCap               int    `mapstructure:"full_cap"`
+	DefaultTimeoutSeconds int    `mapstructure:"default_timeout_seconds"`
+	MaxTimeoutSeconds     int    `mapstructure:"max_timeout_seconds"`
+}
+
 // Config stores the configuration for the application.
 type Config struct {
 	Crawler    *CrawlerConfig    `mapstructure:"crawler"`
 	HTTPServer *HTTPServerConfig `mapstructure:"server"`
 	DB         *DBConfig         `mapstructure:"database"`
 	UIConfig   *UIConfig         `mapstructure:"UI"`
+	API        *APIConfig        `mapstructure:"api"`
 }
 
 // NewConfig loads the configuration from the specified file and path.
