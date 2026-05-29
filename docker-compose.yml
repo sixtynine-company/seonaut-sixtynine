@@ -36,11 +36,12 @@ services:
       # - SEONAUT_DATABASE_USER=${SEONAUT_DB_USER:-seonaut}
       # - SEONAUT_DATABASE_PASSWORD=${SEONAUT_DB_PASSWORD:-seonaut}
       # - SEONAUT_DATABASE_DATABASE=${SEONAUT_DB_NAME:-seonaut}
-      # Internal crawl API (set a strong secret to enable it):
-      # - SEONAUT_API_KEY=${SEONAUT_API_KEY:-}
-      # - SEONAUT_API_MAX_CONCURRENT_CRAWLS=${SEONAUT_API_MAX_CONCURRENT_CRAWLS:-3}
-      # - SEONAUT_API_FULL_CAP=${SEONAUT_API_FULL_CAP:-200}
-      # - SEONAUT_API_DEFAULT_TIMEOUT_SECONDS=${SEONAUT_API_DEFAULT_TIMEOUT_SECONDS:-90}
+      # Internal crawl API. The key is read from .env; the API stays disabled
+      # (every request → 401) while SEONAUT_API_KEY is empty.
+      - SEONAUT_API_KEY=${SEONAUT_API_KEY:-}
+      - SEONAUT_API_MAX_CONCURRENT_CRAWLS=${SEONAUT_API_MAX_CONCURRENT_CRAWLS:-3}
+      - SEONAUT_API_FULL_CAP=${SEONAUT_API_FULL_CAP:-200}
+      - SEONAUT_API_DEFAULT_TIMEOUT_SECONDS=${SEONAUT_API_DEFAULT_TIMEOUT_SECONDS:-90}
     networks:
       - seonaut_network
 
