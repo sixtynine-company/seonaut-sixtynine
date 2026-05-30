@@ -23,7 +23,9 @@ func (ds *DashboardRepository) CountByCanonical(cid int64) int {
 			AND status_code >= 200 AND status_code < 300
 	`
 
-	row := ds.DB.QueryRow(query, cid)
+	ctx, cancel := readCtx()
+	defer cancel()
+	row := ds.DB.QueryRowContext(ctx, query, cid)
 	var c int
 	if err := row.Scan(&c); err != nil {
 		log.Printf("CountByCanonical: %v\n", err)
@@ -43,7 +45,9 @@ func (ds *DashboardRepository) CountByNonCanonical(cid int64) int {
 			AND status_code >= 200 AND status_code < 300
 	`
 
-	row := ds.DB.QueryRow(query, cid)
+	ctx, cancel := readCtx()
+	defer cancel()
+	row := ds.DB.QueryRowContext(ctx, query, cid)
 	var c int
 	if err := row.Scan(&c); err != nil {
 		log.Printf("CountByNonCanonical: %v\n", err)
@@ -66,11 +70,14 @@ func (ds *DashboardRepository) CountImagesAlt(cid int64) *models.AltCount {
 
 	c := &models.AltCount{}
 
-	rows, err := ds.DB.Query(query, cid)
+	ctx, cancel := readCtx()
+	defer cancel()
+	rows, err := ds.DB.QueryContext(ctx, query, cid)
 	if err != nil {
 		log.Println(err)
 		return c
 	}
+	defer rows.Close()
 
 	for rows.Next() {
 		var v int
@@ -105,11 +112,14 @@ func (ds *DashboardRepository) CountScheme(cid int64) *models.SchemeCount {
 
 	c := &models.SchemeCount{}
 
-	rows, err := ds.DB.Query(query, cid)
+	ctx, cancel := readCtx()
+	defer cancel()
+	rows, err := ds.DB.QueryContext(ctx, query, cid)
 	if err != nil {
 		log.Println(err)
 		return c
 	}
+	defer rows.Close()
 
 	for rows.Next() {
 		var v int
@@ -157,11 +167,14 @@ func (ds *DashboardRepository) CountByStatusCode(cid int64) *models.CountList {
 // countListQuery is a helper function used to build the CountList model.
 func (ds *DashboardRepository) countListQuery(query string, cid int64) *models.CountList {
 	m := models.CountList{}
-	rows, err := ds.DB.Query(query, cid)
+	ctx, cancel := readCtx()
+	defer cancel()
+	rows, err := ds.DB.QueryContext(ctx, query, cid)
 	if err != nil {
 		log.Println(err)
 		return &m
 	}
+	defer rows.Close()
 
 	for rows.Next() {
 		c := models.CountItem{}
@@ -205,11 +218,14 @@ func (ds *DashboardRepository) GetStatusCodeByDepth(cid int64) []models.StatusCo
 
 	s := []models.StatusCodeByDepth{}
 
-	rows, err := ds.DB.Query(query, cid)
+	ctx, cancel := readCtx()
+	defer cancel()
+	rows, err := ds.DB.QueryContext(ctx, query, cid)
 	if err != nil {
 		log.Println(err)
 		return s
 	}
+	defer rows.Close()
 
 	for rows.Next() {
 		c := models.StatusCodeByDepth{}

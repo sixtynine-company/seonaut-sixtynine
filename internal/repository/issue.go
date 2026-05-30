@@ -21,10 +21,16 @@ func (ds *IssueRepository) SaveIssues(iStream <-chan *models.Issue) {
 
 	fn := func() {
 		sqlString = sqlString[0 : len(sqlString)-1]
-		stmt, _ := ds.DB.Prepare(query + sqlString)
+		ctx, cancel := writeCtx()
+		defer cancel()
+		stmt, err := ds.DB.PrepareContext(ctx, query+sqlString)
+		if err != nil {
+			log.Println(err)
+			return
+		}
 		defer stmt.Close()
 
-		_, err := stmt.Exec(v...)
+		_, err = stmt.ExecContext(ctx, v...)
 		if err != nil {
 			log.Println(err)
 		}
@@ -61,11 +67,14 @@ func (ds *IssueRepository) FindIssuesByTypeAndPriority(cid int64, p int) []model
 		WHERE crawl_id = ? AND issue_types.priority = ? GROUP BY issue_type_id
 		ORDER BY c DESC`
 
-	rows, err := ds.DB.Query(query, cid, p)
+	ctx, cancel := readCtx()
+	defer cancel()
+	rows, err := ds.DB.QueryContext(ctx, query, cid, p)
 	if err != nil {
 		log.Println(err)
 		return issues
 	}
+	defer rows.Close()
 
 	for rows.Next() {
 		ig := models.IssueGroup{}
@@ -96,11 +105,14 @@ func (ds *IssueRepository) FindPassedIssues(cid int64) []models.IssueGroup {
 		HAVING COUNT(issues.id) = 0
 		ORDER BY issue_types.type;`
 
-	rows, err := ds.DB.Query(query, cid)
+	ctx, cancel := readCtx()
+	defer cancel()
+	rows, err := ds.DB.QueryContext(ctx, query, cid)
 	if err != nil {
 		log.Println(err)
 		return issues
 	}
+	defer rows.Close()
 
 	for rows.Next() {
 		ig := models.IssueGroup{}
@@ -126,7 +138,9 @@ func (ds *IssueRepository) CountIssuesByPriority(cid int64, p int) int {
 		INNER JOIN  issue_types ON issue_types.id = issues.issue_type_id
 		WHERE crawl_id = ? AND issue_types.priority = ? GROUP BY issue_types.priority`
 
-	row := ds.DB.QueryRow(query, cid, p)
+	ctx, cancel := readCtx()
+	defer cancel()
+	row := ds.DB.QueryRowContext(ctx, query, cid, p)
 	var c int
 	if err := row.Scan(&c); err != nil && err != sql.ErrNoRows {
 		log.Printf("CountIssuesByPriority: %v\n", err)
@@ -144,7 +158,9 @@ func (ds *IssueRepository) GetNumberOfPagesForIssues(cid int64, errorType string
 		INNER JOIN issue_types ON issue_types.id = issues.issue_type_id
 		WHERE issue_types.type = ? AND crawl_id  = ?`
 
-	row := ds.DB.QueryRow(query, errorType, cid)
+	ctx, cancel := readCtx()
+	defer cancel()
+	row := ds.DB.QueryRowContext(ctx, query, errorType, cid)
 	var c int
 	if err := row.Scan(&c); err != nil {
 		log.Printf("GetNumberOfPagesForIssues: %v\n", err)
@@ -173,10 +189,14 @@ func (ds *IssueRepository) FindPageReportIssues(cid int64, p int, errorType stri
 		) ORDER BY url ASC LIMIT ?, ?`
 
 	var pageReports []models.PageReport
-	rows, err := ds.DB.Query(query, errorType, cid, offset, max)
+	ctx, cancel := readCtx()
+	defer cancel()
+	rows, err := ds.DB.QueryContext(ctx, query, errorType, cid, offset, max)
 	if err != nil {
 		log.Println(err)
+		return pageReports
 	}
+	defer rows.Close()
 
 	for rows.Next() {
 		p := models.PageReport{}
@@ -203,11 +223,14 @@ func (ds *IssueRepository) FindErrorTypesByPage(pid int, cid int64) []string {
 		WHERE pagereport_id = ? and crawl_id = ?
 		GROUP BY issue_type_id`
 
-	rows, err := ds.DB.Query(query, pid, cid)
+	ctx, cancel := readCtx()
+	defer cancel()
+	rows, err := ds.DB.QueryContext(ctx, query, pid, cid)
 	if err != nil {
 		log.Println(err)
 		return et
 	}
+	defer rows.Close()
 
 	for rows.Next() {
 		var s string

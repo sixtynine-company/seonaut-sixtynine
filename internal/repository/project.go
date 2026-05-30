@@ -30,9 +30,16 @@ func (ds *ProjectRepository) SaveProject(project *models.Project, uid int) {
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 
-	stmt, _ := ds.DB.Prepare(query)
+	ctx, cancel := writeCtx()
+	defer cancel()
+	stmt, err := ds.DB.PrepareContext(ctx, query)
+	if err != nil {
+		log.Printf("saveProject: %v\n", err)
+		return
+	}
 	defer stmt.Close()
-	_, err := stmt.Exec(
+	_, err = stmt.ExecContext(
+		ctx,
 		project.URL,
 		project.IgnoreRobotsTxt,
 		project.FollowNofollow,
@@ -72,11 +79,14 @@ func (ds *ProjectRepository) FindProjectsByUser(uid int) []models.Project {
 		WHERE user_id = ?
 		ORDER BY url ASC`
 
-	rows, err := ds.DB.Query(query, uid)
+	ctx, cancel := readCtx()
+	defer cancel()
+	rows, err := ds.DB.QueryContext(ctx, query, uid)
 	if err != nil {
 		log.Println(err)
 		return projects
 	}
+	defer rows.Close()
 
 	for rows.Next() {
 		p := models.Project{}
@@ -126,7 +136,9 @@ func (ds *ProjectRepository) FindProjectById(id int, uid int) (models.Project, e
 		FROM projects
 		WHERE id = ? AND user_id = ?`
 
-	row := ds.DB.QueryRow(query, id, uid)
+	ctx, cancel := readCtx()
+	defer cancel()
+	row := ds.DB.QueryRowContext(ctx, query, id, uid)
 
 	p := models.Project{}
 	err := row.Scan(
@@ -173,7 +185,9 @@ func (ds *ProjectRepository) FindProjectByURL(url string, uid int) (*models.Proj
 		FROM projects
 		WHERE url = ? AND user_id = ?`
 
-	row := ds.DB.QueryRow(query, url, uid)
+	ctx, cancel := readCtx()
+	defer cancel()
+	row := ds.DB.QueryRowContext(ctx, query, url, uid)
 
 	p := &models.Project{}
 	err := row.Scan(
@@ -201,7 +215,9 @@ func (ds *ProjectRepository) FindProjectByURL(url string, uid int) (*models.Proj
 // DisableProject disables a project marking it as "deleting".
 func (ds *ProjectRepository) DisableProject(p *models.Project) {
 	query := `UPDATE projects SET deleting=1 WHERE id = ?`
-	_, err := ds.DB.Exec(query, p.Id)
+	ctx, cancel := writeCtx()
+	defer cancel()
+	_, err := ds.DB.ExecContext(ctx, query, p.Id)
 	if err != nil {
 		log.Printf("DeleteProject: update: pid %d %v\n", p.Id, err)
 	}
@@ -210,7 +226,9 @@ func (ds *ProjectRepository) DisableProject(p *models.Project) {
 // DeleteProject deletes the project.
 func (ds *ProjectRepository) DeleteProject(p *models.Project) {
 	query := `DELETE FROM projects WHERE id = ?`
-	_, err := ds.DB.Exec(query, p.Id)
+	ctx, cancel := writeCtx()
+	defer cancel()
+	_, err := ds.DB.ExecContext(ctx, query, p.Id)
 	if err != nil {
 		log.Printf("DeleteProject: pid %d %v\n", p.Id, err)
 		return
@@ -232,7 +250,10 @@ func (ds *ProjectRepository) UpdateProject(p *models.Project) error {
 			user_agent = ?
 		WHERE id = ?
 	`
-	_, err := ds.DB.Exec(
+	ctx, cancel := writeCtx()
+	defer cancel()
+	_, err := ds.DB.ExecContext(
+		ctx,
 		query,
 		p.IgnoreRobotsTxt,
 		p.FollowNofollow,

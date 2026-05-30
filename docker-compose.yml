@@ -2,6 +2,17 @@ services:
   db:
     image: mysql:8.4
     container_name: "SEOnaut-db"
+    # Auto-recover if the DB process dies, and cap its memory so it cannot OOM the host.
+    restart: unless-stopped
+    command:
+      # Explicit headroom above the app pool (50) so crawl writes + interactive reads
+      # never exhaust server connections. Buffer pool ~25% of the DB memory cap.
+      - --max_connections=200
+      - --innodb_buffer_pool_size=512M
+    # mem_limit is honored by `docker compose` (non-swarm) on a VPS. For swarm/stack
+    # deploys use `deploy.resources.limits.memory` instead. Tune for the host: this
+    # assumes ~2GB RAM (db 1g + app 768m leaves headroom for the OS).
+    mem_limit: 1g
     environment:
       - MYSQL_ROOT_PASSWORD=root
       - MYSQL_DATABASE=seonaut
@@ -13,6 +24,10 @@ services:
   app:
     build: .
     container_name: "SEOnaut-app"
+    # Auto-recover on crash/OOM, and cap memory. GOMEMLIMIT (below) is set under this
+    # cap so Go's GC backs off before the container OOM-killer ever fires.
+    restart: unless-stopped
+    mem_limit: 768m
     # The internal /api/v1 routes share this port. For internal-network-only access
     # (per the API design), do NOT publish this port publicly — instead reach the app
     # from a co-located service over the seonaut_network at http://SEOnaut-app:9000,
@@ -27,6 +42,9 @@ services:
       - WAIT_TIMEOUT=300
       - WAIT_SLEEP_INTERVAL=30
       - WAIT_HOST_CONNECT_TIMEOUT=30
+      # Soft heap limit, kept below mem_limit (768m) so the Go GC reclaims aggressively
+      # as it approaches the cap instead of being hard-killed by the container runtime.
+      - GOMEMLIMIT=700MiB
       # Seonaut config overrides
       # Set to true to disable public account signups (recommended in production):
       - SEONAUT_SERVER_SIGNUP_DISABLED=${SEONAUT_SERVER_SIGNUP_DISABLED:-false}

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"time"
 
 	"github.com/stjudewashere/seonaut/internal/models"
 	"github.com/stjudewashere/seonaut/internal/services"
@@ -100,8 +101,19 @@ func NewServer(container *services.Container) {
 	http.HandleFunc("GET /replay", container.CookieSession.Auth(replayHandler.proxyHandler))
 
 	fmt.Printf("Starting server at %s on port %d...\n", container.Config.HTTPServer.Server, container.Config.HTTPServer.Port)
-	err := http.ListenAndServe(fmt.Sprintf("%s:%d", container.Config.HTTPServer.Server, container.Config.HTTPServer.Port), nil)
-	if err != nil {
+
+	// An explicit server with timeouts so a slow/stalled client (or a wedged handler)
+	// cannot tie up connections indefinitely. ReadTimeout and WriteTimeout are left
+	// unset (0): the /crawl/ws WebSocket is a long-lived hijacked connection with its
+	// own per-message deadlines, and a global ReadTimeout/WriteTimeout would force-close
+	// it. IdleTimeout (120s) is above the WebSocket ping period (54s) so live crawls are
+	// never reaped, while ReadHeaderTimeout caps slowloris-style header stalls.
+	srv := &http.Server{
+		Addr:              fmt.Sprintf("%s:%d", container.Config.HTTPServer.Server, container.Config.HTTPServer.Port),
+		ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout:       120 * time.Second,
+	}
+	if err := srv.ListenAndServe(); err != nil {
 		log.Fatalf("error starting server: %v", err)
 	}
 }

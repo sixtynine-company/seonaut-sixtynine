@@ -1,8 +1,10 @@
 package multipage
 
 import (
+	"context"
 	"database/sql"
 	"log"
+	"time"
 
 	"github.com/stjudewashere/seonaut/internal/models"
 )
@@ -59,10 +61,15 @@ func (sr *SqlReporter) pageReportsQuery(query string, args ...interface{}) <-cha
 	go func() {
 		defer close(prStream)
 
-		rows, err := sr.db.Query(query, args...)
+		ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+		defer cancel()
+
+		rows, err := sr.db.QueryContext(ctx, query, args...)
 		if err != nil {
 			log.Printf("Error executing query: %s, Args: %v, Error: %v", query, args, err)
+			return
 		}
+		defer rows.Close()
 
 		for rows.Next() {
 			var pid int64

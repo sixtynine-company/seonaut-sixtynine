@@ -18,6 +18,9 @@ func (ds *ExportRepository) ExportLinks(crawl *models.Crawl) <-chan *models.Expo
 	go func() {
 		defer close(lStream)
 
+		ctx, cancel := streamCtx()
+		defer cancel()
+
 		query := `
 				SELECT
 					pagereports.url,
@@ -27,10 +30,12 @@ func (ds *ExportRepository) ExportLinks(crawl *models.Crawl) <-chan *models.Expo
 				LEFT JOIN pagereports ON pagereports.id  = links.pagereport_id
 				WHERE links.crawl_id = ?`
 
-		rows, err := ds.DB.Query(query, crawl.Id)
+		rows, err := ds.DB.QueryContext(ctx, query, crawl.Id)
 		if err != nil {
 			log.Println(err)
+			return
 		}
+		defer rows.Close()
 
 		for rows.Next() {
 			v := &models.ExportLink{}
@@ -54,6 +59,9 @@ func (ds *ExportRepository) ExportExternalLinks(crawl *models.Crawl) <-chan *mod
 	go func() {
 		defer close(lStream)
 
+		ctx, cancel := streamCtx()
+		defer cancel()
+
 		query := `
 				SELECT
 					pagereports.url,
@@ -63,10 +71,12 @@ func (ds *ExportRepository) ExportExternalLinks(crawl *models.Crawl) <-chan *mod
 				LEFT JOIN pagereports ON pagereports.id  = external_links.pagereport_id
 				WHERE external_links.crawl_id = ?`
 
-		rows, err := ds.DB.Query(query, crawl.Id)
+		rows, err := ds.DB.QueryContext(ctx, query, crawl.Id)
 		if err != nil {
 			log.Println(err)
+			return
 		}
+		defer rows.Close()
 
 		for rows.Next() {
 			v := &models.ExportLink{}
@@ -90,6 +100,9 @@ func (ds *ExportRepository) ExportImages(crawl *models.Crawl) <-chan *models.Exp
 	go func() {
 		defer close(iStream)
 
+		ctx, cancel := streamCtx()
+		defer cancel()
+
 		query := `
 			SELECT
 				pagereports.url,
@@ -99,10 +112,12 @@ func (ds *ExportRepository) ExportImages(crawl *models.Crawl) <-chan *models.Exp
 			LEFT JOIN pagereports ON pagereports.id  = images.pagereport_id
 			WHERE images.crawl_id = ?`
 
-		rows, err := ds.DB.Query(query, crawl.Id)
+		rows, err := ds.DB.QueryContext(ctx, query, crawl.Id)
 		if err != nil {
 			log.Println(err)
+			return
 		}
+		defer rows.Close()
 
 		for rows.Next() {
 			v := &models.ExportImage{}
@@ -126,6 +141,9 @@ func (ds *ExportRepository) ExportScripts(crawl *models.Crawl) <-chan *models.Sc
 	go func() {
 		defer close(sStream)
 
+		ctx, cancel := streamCtx()
+		defer cancel()
+
 		query := `
 			SELECT
 				pagereports.url,
@@ -134,10 +152,12 @@ func (ds *ExportRepository) ExportScripts(crawl *models.Crawl) <-chan *models.Sc
 			LEFT JOIN pagereports ON pagereports.id  = scripts.pagereport_id
 			WHERE scripts.crawl_id = ?`
 
-		rows, err := ds.DB.Query(query, crawl.Id)
+		rows, err := ds.DB.QueryContext(ctx, query, crawl.Id)
 		if err != nil {
 			log.Println(err)
+			return
 		}
+		defer rows.Close()
 
 		for rows.Next() {
 			v := &models.Script{}
@@ -161,6 +181,9 @@ func (ds *ExportRepository) ExportStyles(crawl *models.Crawl) <-chan *models.Sty
 	go func() {
 		defer close(sStream)
 
+		ctx, cancel := streamCtx()
+		defer cancel()
+
 		query := `
 			SELECT
 				pagereports.url,
@@ -169,10 +192,12 @@ func (ds *ExportRepository) ExportStyles(crawl *models.Crawl) <-chan *models.Sty
 			LEFT JOIN pagereports ON pagereports.id  = styles.pagereport_id
 			WHERE styles.crawl_id = ?`
 
-		rows, err := ds.DB.Query(query, crawl.Id)
+		rows, err := ds.DB.QueryContext(ctx, query, crawl.Id)
 		if err != nil {
 			log.Println(err)
+			return
 		}
+		defer rows.Close()
 
 		for rows.Next() {
 			v := &models.Style{}
@@ -196,6 +221,9 @@ func (ds *ExportRepository) ExportIframes(crawl *models.Crawl) <-chan *models.If
 	go func() {
 		defer close(vStream)
 
+		ctx, cancel := streamCtx()
+		defer cancel()
+
 		query := `
 			SELECT
 				pagereports.url,
@@ -204,10 +232,12 @@ func (ds *ExportRepository) ExportIframes(crawl *models.Crawl) <-chan *models.If
 			LEFT JOIN pagereports ON pagereports.id  = iframes.pagereport_id
 			WHERE iframes.crawl_id = ?`
 
-		rows, err := ds.DB.Query(query, crawl.Id)
+		rows, err := ds.DB.QueryContext(ctx, query, crawl.Id)
 		if err != nil {
 			log.Println(err)
+			return
 		}
+		defer rows.Close()
 
 		for rows.Next() {
 			v := &models.Iframe{}
@@ -231,6 +261,9 @@ func (ds *ExportRepository) ExportAudios(crawl *models.Crawl) <-chan *models.Aud
 	go func() {
 		defer close(vStream)
 
+		ctx, cancel := streamCtx()
+		defer cancel()
+
 		query := `
 			SELECT
 				pagereports.url,
@@ -239,10 +272,12 @@ func (ds *ExportRepository) ExportAudios(crawl *models.Crawl) <-chan *models.Aud
 			LEFT JOIN pagereports ON pagereports.id  = audios.pagereport_id
 			WHERE audios.crawl_id = ?`
 
-		rows, err := ds.DB.Query(query, crawl.Id)
+		rows, err := ds.DB.QueryContext(ctx, query, crawl.Id)
 		if err != nil {
 			log.Println(err)
+			return
 		}
+		defer rows.Close()
 
 		for rows.Next() {
 			v := &models.Audio{}
@@ -266,6 +301,9 @@ func (ds *ExportRepository) ExportVideos(crawl *models.Crawl) <-chan *models.Exp
 	go func() {
 		defer close(vStream)
 
+		ctx, cancel := streamCtx()
+		defer cancel()
+
 		query := `
 			SELECT
 				pagereports.url,
@@ -274,10 +312,12 @@ func (ds *ExportRepository) ExportVideos(crawl *models.Crawl) <-chan *models.Exp
 			LEFT JOIN pagereports ON pagereports.id  = videos.pagereport_id
 			WHERE videos.crawl_id = ?`
 
-		rows, err := ds.DB.Query(query, crawl.Id)
+		rows, err := ds.DB.QueryContext(ctx, query, crawl.Id)
 		if err != nil {
 			log.Println(err)
+			return
 		}
+		defer rows.Close()
 
 		for rows.Next() {
 			v := &models.ExportVideo{}
@@ -301,6 +341,9 @@ func (ds *ExportRepository) ExportHreflangs(crawl *models.Crawl) <-chan *models.
 	go func() {
 		defer close(vStream)
 
+		ctx, cancel := streamCtx()
+		defer cancel()
+
 		query := `
 			SELECT
 				pagereports.url,
@@ -311,10 +354,12 @@ func (ds *ExportRepository) ExportHreflangs(crawl *models.Crawl) <-chan *models.
 			LEFT JOIN pagereports ON pagereports.id  = hreflangs.pagereport_id
 			WHERE hreflangs.crawl_id = ?`
 
-		rows, err := ds.DB.Query(query, crawl.Id)
+		rows, err := ds.DB.QueryContext(ctx, query, crawl.Id)
 		if err != nil {
 			log.Println(err)
+			return
 		}
+		defer rows.Close()
 
 		for rows.Next() {
 			v := &models.ExportHreflang{}
@@ -338,6 +383,9 @@ func (ds *ExportRepository) ExportIssues(crawl *models.Crawl) <-chan *models.Exp
 	go func() {
 		defer close(vStream)
 
+		ctx, cancel := streamCtx()
+		defer cancel()
+
 		query := `
 		SELECT
 			pagereports.url,
@@ -349,10 +397,12 @@ func (ds *ExportRepository) ExportIssues(crawl *models.Crawl) <-chan *models.Exp
 		WHERE issues.crawl_id = ?
 		ORDER BY issue_types.priority ASC`
 
-		rows, err := ds.DB.Query(query, crawl.Id)
+		rows, err := ds.DB.QueryContext(ctx, query, crawl.Id)
 		if err != nil {
 			log.Println(err)
+			return
 		}
+		defer rows.Close()
 
 		for rows.Next() {
 			v := &models.ExportIssue{}

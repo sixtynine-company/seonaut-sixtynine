@@ -14,10 +14,15 @@ type UserRepository struct {
 // It returns the inserted user and an error if the user could not be inserted.
 func (ds *UserRepository) UserSignup(email, password, lang, theme string) (*models.User, error) {
 	query := `INSERT INTO users (email, password, lang, theme, created) VALUES (?, ?, ?, ?, NOW())`
-	stmt, _ := ds.DB.Prepare(query)
+	ctx, cancel := writeCtx()
+	defer cancel()
+	stmt, err := ds.DB.PrepareContext(ctx, query)
+	if err != nil {
+		return nil, err
+	}
 	defer stmt.Close()
 
-	_, err := stmt.Exec(email, password, lang, theme)
+	_, err = stmt.ExecContext(ctx, email, password, lang, theme)
 	if err != nil {
 		return nil, err
 	}
@@ -40,7 +45,9 @@ func (ds *UserRepository) FindUserByEmail(email string) (*models.User, error) {
 		FROM users
 		WHERE email = ? AND deleting = 0`
 
-	row := ds.DB.QueryRow(query, email)
+	ctx, cancel := readCtx()
+	defer cancel()
+	row := ds.DB.QueryRowContext(ctx, query, email)
 	err := row.Scan(&u.Id, &u.Email, &u.Password, &u.Lang, &u.Theme)
 	if err != nil {
 		return u, err
@@ -57,7 +64,9 @@ func (ds *UserRepository) UserUpdatePassword(email, hashedPassword string) error
 		WHERE email = ?
 	`
 
-	_, err := ds.DB.Exec(query, hashedPassword, email)
+	ctx, cancel := writeCtx()
+	defer cancel()
+	_, err := ds.DB.ExecContext(ctx, query, hashedPassword, email)
 
 	return err
 }
@@ -70,7 +79,9 @@ func (ds *UserRepository) UserUpdateSettings(user *models.User, lang, theme stri
 		WHERE id = ?
 	`
 
-	_, err := ds.DB.Exec(query, lang, theme, user.Id)
+	ctx, cancel := writeCtx()
+	defer cancel()
+	_, err := ds.DB.ExecContext(ctx, query, lang, theme, user.Id)
 
 	return err
 }
@@ -78,7 +89,9 @@ func (ds *UserRepository) UserUpdateSettings(user *models.User, lang, theme stri
 // DisableUser sets the user in 'deleting' state, which makes it inactive.
 func (ds *UserRepository) DisableUser(user *models.User) error {
 	query := `UPDATE users SET deleting=1 WHERE id = ?`
-	_, err := ds.DB.Exec(query, user.Id)
+	ctx, cancel := writeCtx()
+	defer cancel()
+	_, err := ds.DB.ExecContext(ctx, query, user.Id)
 
 	return err
 }
@@ -86,7 +99,9 @@ func (ds *UserRepository) DisableUser(user *models.User) error {
 // DeleteUser removes the user from the database.
 func (ds *UserRepository) DeleteUser(user *models.User) error {
 	query := "DELETE FROM users WHERE id = ?"
-	_, err := ds.DB.Exec(query, user.Id)
+	ctx, cancel := writeCtx()
+	defer cancel()
+	_, err := ds.DB.ExecContext(ctx, query, user.Id)
 
 	return err
 }

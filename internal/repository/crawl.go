@@ -17,9 +17,14 @@ type CrawlRepository struct {
 // SaveCrawl inserts a new crawl into the database and returns a new Crawl model with
 // the data provided by the project.
 func (ds *CrawlRepository) SaveCrawl(p models.Project) (*models.Crawl, error) {
-	stmt, _ := ds.DB.Prepare("INSERT INTO crawls (project_id) VALUES (?)")
+	ctx, cancel := writeCtx()
+	defer cancel()
+	stmt, err := ds.DB.PrepareContext(ctx, "INSERT INTO crawls (project_id) VALUES (?)")
+	if err != nil {
+		return nil, err
+	}
 	defer stmt.Close()
-	res, err := stmt.Exec(p.Id)
+	res, err := stmt.ExecContext(ctx, p.Id)
 
 	if err != nil {
 		return nil, err
@@ -41,7 +46,9 @@ func (ds *CrawlRepository) SaveCrawl(p models.Project) (*models.Crawl, error) {
 // GetCrawledPagesCount returns the number of page reports stored for the given
 // crawl. It is used to report live crawl progress.
 func (ds *CrawlRepository) GetCrawledPagesCount(crawlId int64) int {
-	row := ds.DB.QueryRow(`SELECT count(*) FROM pagereports WHERE crawl_id = ?`, crawlId)
+	ctx, cancel := readCtx()
+	defer cancel()
+	row := ds.DB.QueryRowContext(ctx, `SELECT count(*) FROM pagereports WHERE crawl_id = ?`, crawlId)
 	var c int
 	if err := row.Scan(&c); err != nil {
 		log.Printf("GetCrawledPagesCount: %v\n", err)
@@ -75,7 +82,9 @@ func (ds *CrawlRepository) GetLastCrawl(p *models.Project) models.Crawl {
 		WHERE project_id = ?
 		ORDER BY start DESC LIMIT 1`
 
-	row := ds.DB.QueryRow(query, p.Id)
+	ctx, cancel := readCtx()
+	defer cancel()
+	row := ds.DB.QueryRowContext(ctx, query, p.Id)
 
 	var endTime, issuesEndTime sql.NullTime
 	crawl := models.Crawl{Crawling: true}
@@ -133,10 +142,14 @@ func (ds *CrawlRepository) GetLastCrawls(p models.Project, limit int) []models.C
 		ORDER BY start DESC LIMIT ?`
 
 	crawls := []models.Crawl{}
-	rows, err := ds.DB.Query(query, p.Id, limit)
+	ctx, cancel := readCtx()
+	defer cancel()
+	rows, err := ds.DB.QueryContext(ctx, query, p.Id, limit)
 	if err != nil {
 		log.Println(err)
+		return crawls
 	}
+	defer rows.Close()
 
 	for rows.Next() {
 		endTime := sql.NullTime{}
@@ -169,42 +182,56 @@ func (ds *CrawlRepository) GetLastCrawls(p models.Project, limit int) []models.C
 	return crawls
 }
 
-// DeleteCrawlData deletes all the crawl's data in a batch process. It removes the crawl's associated
-// links, external_links, hreflangs, issues, images and any other data associated to it.
+// DeleteCrawlData deletes all the crawl's data in a throttled batch process. It removes
+// the crawl's associated links, external_links, hreflangs, issues, images and any other
+// data associated to it. It is meant to run off the crawl's critical path (in a
+// background goroutine): each DB call is context-bounded, a short pause between batches
+// keeps it gentle on the database, and a per-table batch cap guarantees it can never
+// loop unbounded even if a delete stops making progress.
 func (ds *CrawlRepository) DeleteCrawlData(crawl *models.Crawl) {
-	var deleteFunc func(cid int64, table string)
-	deleteFunc = func(cid int64, table string) {
-		query := fmt.Sprintf("DELETE FROM %s WHERE crawl_id = ? ORDER BY id DESC LIMIT 1000", table)
-		_, err := ds.DB.Exec(query, cid)
-		if err != nil {
-			log.Printf("DeleteCrawlData: cid %d table %s %v\n", cid, table, err)
-			return
+	// 1000 rows per batch; the cap is a runaway backstop, far above any real crawl.
+	const maxBatchesPerTable = 100000
+
+	deleteTable := func(cid int64, table string) {
+		deleteQuery := fmt.Sprintf("DELETE FROM %s WHERE crawl_id = ? ORDER BY id DESC LIMIT 1000", table)
+		countQuery := fmt.Sprintf("SELECT count(*) FROM %s WHERE crawl_id = ?", table)
+
+		for i := 0; i < maxBatchesPerTable; i++ {
+			writeContext, writeCancel := writeCtx()
+			_, err := ds.DB.ExecContext(writeContext, deleteQuery, cid)
+			writeCancel()
+			if err != nil {
+				log.Printf("DeleteCrawlData: cid %d table %s %v\n", cid, table, err)
+				return
+			}
+
+			readContext, readCancel := readCtx()
+			row := ds.DB.QueryRowContext(readContext, countQuery, cid)
+			var c int
+			err = row.Scan(&c)
+			readCancel()
+			if err != nil {
+				log.Printf("DeleteCrawlData count: cid %d table %s %v\n", cid, table, err)
+				return
+			}
+
+			if c == 0 {
+				return
+			}
+
+			// Brief pause between batches to stay gentle on the database.
+			time.Sleep(250 * time.Millisecond)
 		}
 
-		query = fmt.Sprintf("SELECT count(*) FROM %s WHERE crawl_id = ?", table)
-		row := ds.DB.QueryRow(query, cid)
-		var c int
-		if err := row.Scan(&c); err != nil {
-			log.Printf("DeleteCrawlData count: pid %d table %s %v\n", cid, table, err)
-		}
-
-		if c > 0 {
-			time.Sleep(1500 * time.Millisecond)
-			deleteFunc(cid, table)
-		}
+		log.Printf("DeleteCrawlData: cid %d table %s hit batch cap, leaving remainder for next cleanup\n", cid, table)
 	}
 
-	deleteFunc(crawl.Id, "links")
-	deleteFunc(crawl.Id, "external_links")
-	deleteFunc(crawl.Id, "hreflangs")
-	deleteFunc(crawl.Id, "issues")
-	deleteFunc(crawl.Id, "images")
-	deleteFunc(crawl.Id, "scripts")
-	deleteFunc(crawl.Id, "styles")
-	deleteFunc(crawl.Id, "iframes")
-	deleteFunc(crawl.Id, "audios")
-	deleteFunc(crawl.Id, "videos")
-	deleteFunc(crawl.Id, "pagereports")
+	for _, table := range []string{
+		"links", "external_links", "hreflangs", "issues", "images",
+		"scripts", "styles", "iframes", "audios", "videos", "pagereports",
+	} {
+		deleteTable(crawl.Id, table)
+	}
 }
 
 // DeleteProjectCrawls deletes all of the project's crawls and associated data.
@@ -216,10 +243,14 @@ func (ds *CrawlRepository) DeleteProjectCrawls(p *models.Project) {
 		WHERE project_id = ?
 	`
 
-	rows, err := ds.DB.Query(query, p.Id)
+	ctx, cancel := readCtx()
+	defer cancel()
+	rows, err := ds.DB.QueryContext(ctx, query, p.Id)
 	if err != nil {
 		log.Printf("DeleteProjectCrawls Query: %v\n", err)
+		return
 	}
+	defer rows.Close()
 
 	for rows.Next() {
 		c := &models.Crawl{}
@@ -231,7 +262,9 @@ func (ds *CrawlRepository) DeleteProjectCrawls(p *models.Project) {
 	}
 
 	query = `DELETE FROM crawls WHERE project_id = ?`
-	_, err = ds.DB.Exec(query, p.Id)
+	writeContext, writeCancel := writeCtx()
+	defer writeCancel()
+	_, err = ds.DB.ExecContext(writeContext, query, p.Id)
 	if err != nil {
 		log.Printf("deleting crawls for project %d: %v", p.Id, err)
 		return
@@ -249,11 +282,14 @@ func (ds *CrawlRepository) DeleteUnfinishedCrawls() {
 	`
 	count := 0
 
-	rows, err := ds.DB.Query(query)
+	ctx, cancel := readCtx()
+	defer cancel()
+	rows, err := ds.DB.QueryContext(ctx, query)
 	if err != nil {
 		log.Println(err)
 		return
 	}
+	defer rows.Close()
 
 	ids := []any{}
 	placeholders := []string{}
@@ -277,7 +313,9 @@ func (ds *CrawlRepository) DeleteUnfinishedCrawls() {
 
 	placeholdersStr := strings.Join(placeholders, ",")
 	deleteQuery := fmt.Sprintf("DELETE FROM crawls WHERE id IN (%s)", placeholdersStr)
-	_, err = ds.DB.Exec(deleteQuery, ids...)
+	writeContext, writeCancel := writeCtx()
+	defer writeCancel()
+	_, err = ds.DB.ExecContext(writeContext, deleteQuery, ids...)
 	if err != nil {
 		log.Printf("DeleteUnfinishedCrawls: %v", err)
 	}
@@ -311,7 +349,10 @@ func (ds *CrawlRepository) UpdateCrawl(crawl *models.Crawl) {
 			total_issues = ?
 		WHERE id = ?`
 
-	_, err := ds.DB.Exec(
+	ctx, cancel := writeCtx()
+	defer cancel()
+	_, err := ds.DB.ExecContext(
+		ctx,
 		query,
 		crawl.End,
 		crawl.TotalURLs,

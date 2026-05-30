@@ -131,7 +131,14 @@ func (s *CrawlerService) reserveCrawl(p models.Project, b models.BasicAuth, craw
 // operate on a stable copy.
 func (s *CrawlerService) executeCrawl(r *reservedCrawl, p models.Project) {
 	defer s.removeCrawler(&p)
-	defer s.repository.DeleteCrawlData(&r.previousCrawl)
+
+	// Reclaim the previous crawl's data in the background. This throttled, batched
+	// delete used to run inline as a defer here, which held the crawl's concurrency
+	// slot and blocked the project from being re-crawled until the whole delete
+	// finished. Detaching it keeps the slow cleanup off the crawl's critical path; the
+	// crawl is copied so the goroutine does not alias the reservedCrawl.
+	previousCrawl := r.previousCrawl
+	defer func() { go s.repository.DeleteCrawlData(&previousCrawl) }()
 
 	callback := s.crawlerHandler.responseCallback(r.crawl, &p, r.crawler)
 
